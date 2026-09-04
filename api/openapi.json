@@ -1,0 +1,1036 @@
+{
+  "openapi": "3.1.2",
+  "info": {
+    "title": "PostMyForm API",
+    "version": "0.6.0",
+    "summary": "Programmatic management API for PostMyForm.",
+    "description": "Use this API to manage PostMyForm resources.\n\nThis revision provides read and write operations for forms and form\nfields, and read access to generated form HTML snippets. API credentials\ncontrol access with explicit scopes. Read operations are limited to 120\nrequests per minute for each credential and 120 requests per minute in\naggregate for the organization. Write operations are limited to 30 requests\nper minute for each credential and 30 requests per minute in aggregate for\nthe organization. PostMyForm also applies pre-authentication abuse\nprotection.\n",
+    "license": {
+      "name": "Proprietary"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://postmyform.com/api/v1",
+      "description": "Production"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Forms",
+      "description": "Read and manage PostMyForm form configuration."
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/forms": {
+      "get": {
+        "tags": [
+          "Forms"
+        ],
+        "operationId": "listForms",
+        "summary": "List forms",
+        "description": "List all non-deleted forms in the organization that owns the\nauthenticated API credential.\n\nThis operation requires the `forms:read` scope.\n\nThe response is ordered from newest to oldest.\n",
+        "responses": {
+          "200": {
+            "description": "The organization forms.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStore"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Forms"
+        ],
+        "operationId": "createForm",
+        "summary": "Create a form",
+        "description": "Create a form in the organization that owns the authenticated API\ncredential.\n\nThis operation requires the `forms:write` scope.\n\nPostMyForm generates the form ID, slug, submission endpoint ID,\nhoneypot field name, initial active status, and minimum submission\ntime.\n\nForm creation is subject to the organization's current form limit.\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFormRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The form was created.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStore"
+              },
+              "Location": {
+                "description": "The absolute API URL of the created form.",
+                "schema": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/FormLimitReached"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/forms/{formId}": {
+      "get": {
+        "tags": [
+          "Forms"
+        ],
+        "operationId": "getForm",
+        "summary": "Get a form",
+        "description": "Get one non-deleted form by its PostMyForm form ID.\n\nThis operation requires the `forms:read` scope.\n\nA form in another organization, a deleted form, an unknown form ID,\nand an invalid form ID all return the same not-found response.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/FormId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The form.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStore"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/FormNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Forms"
+        ],
+        "operationId": "updateForm",
+        "summary": "Update a form",
+        "description": "Update one or more editable settings on an existing non-deleted form.\n\nThis operation requires the `forms:write` scope.\n\nOmitted properties keep their current values. An empty\n`allowedOrigins` array clears all configured origins.\nA null `successRedirectUrl` clears the redirect.\n\nCustomer-controlled status values are `active` and `paused`.\nA form that was disabled by PostMyForm remains disabled even if the\nrequest specifies `active`.\n\nA form in another organization, a deleted form, an unknown form ID,\nand an invalid form ID all return the same not-found response.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/FormId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchFormRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The form settings were updated.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStore"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/FormNotFound"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/forms/{formId}/fields": {
+      "get": {
+        "tags": [
+          "Forms"
+        ],
+        "operationId": "listFormFields",
+        "summary": "List form fields",
+        "description": "Get the complete ordered field configuration for one non-deleted\nform.\n\nThis operation requires the `forms:read` scope.\n\nArray order is significant. The order returned by this operation is\nthe order used by generated form HTML.\n\nA form with no stored field configuration returns the canonical\ndefault fields.\n\nA form in another organization, a deleted form, an unknown form ID,\nand an invalid form ID all return the same not-found response.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/FormId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The ordered form field configuration.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStore"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormFieldsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/FormNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Forms"
+        ],
+        "operationId": "replaceFormFields",
+        "summary": "Replace form fields",
+        "description": "Replace the complete ordered field configuration for one non-deleted\nform.\n\nThis operation requires the `forms:write` scope.\n\nThe supplied array replaces the complete current field collection.\nFields that are not present in the request are removed. Array order\nbecomes the stored field order.\n\nThe request must contain between 1 and 50 fields.\n\nField names are case-insensitively unique. A field name cannot use\nthe form's current honeypot field name or the internal submission\ntiming field name.\n\nSelect fields require at least one option. Non-select fields cannot\ncontain non-empty option arrays. PostMyForm normalizes field names,\nlabels, and option values before it stores them.\n\nReplacing fields does not change form status. Fields can be replaced\nwhile a form is active, paused, or disabled.\n\nA form in another organization, a deleted form, an unknown form ID,\nand an invalid form ID all return the same not-found response.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/FormId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceFormFieldsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The complete normalized field configuration.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStore"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormFieldsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/FormNotFound"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/forms/{formId}/snippet": {
+      "get": {
+        "tags": [
+          "Forms"
+        ],
+        "operationId": "getFormSnippet",
+        "summary": "Get generated form HTML",
+        "description": "Get the current starter HTML snippet for one non-deleted form.\n\nThis operation requires the `forms:read` scope.\n\nPostMyForm generates the snippet on demand from the current form\nconfiguration and ordered field collection. A form with no stored\nfield configuration uses the canonical default fields.\n\nSnippets can be generated while a form is active, paused, or\ndisabled. Generating a snippet does not change form status.\n\nA form in another organization, a deleted form, an unknown form ID,\nand an invalid form ID all return the same not-found response.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/FormId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The current generated starter HTML snippet.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStore"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormSnippetResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/FormNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "PostMyForm API credential",
+        "description": "Use an API credential in the Authorization header.\n\nEach operation documents the required API credential scope.\n"
+      }
+    },
+    "parameters": {
+      "FormId": {
+        "name": "formId",
+        "in": "path",
+        "required": true,
+        "description": "The PostMyForm form ID.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "headers": {
+      "NoStore": {
+        "description": "The response must not be stored in a cache.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "no-store"
+          ]
+        }
+      },
+      "RetryAfter": {
+        "description": "The number of seconds to wait before retrying the request.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "The API credential is missing, malformed, or not valid.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "WWW-Authenticate": {
+            "description": "The Bearer authentication challenge.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "The credential does not have the required scope, or the organization\ncannot use the API because it is suspended, expired, or unavailable.\n",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "WWW-Authenticate": {
+            "description": "The Bearer authorization error when the credential does not have\nthe required scope.\n",
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "InvalidRequest": {
+        "description": "The request body is malformed or contains invalid settings.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "PayloadTooLarge": {
+        "description": "The request body exceeds the maximum allowed size.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "UnsupportedMediaType": {
+        "description": "The request Content-Type is missing or is not application/json.\n",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "FormNotFound": {
+        "description": "The form does not exist, is deleted, is in another organization, or\nthe supplied form ID is not valid.\n",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "FormLimitReached": {
+        "description": "The organization has reached its current form limit.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "The request exceeded an applicable API rate limit.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "Retry-After": {
+            "$ref": "#/components/headers/RetryAfter"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "FormStatus": {
+        "type": "string",
+        "description": "The current operational status of the form.",
+        "enum": [
+          "active",
+          "paused",
+          "disabled"
+        ]
+      },
+      "EditableFormStatus": {
+        "type": "string",
+        "description": "A form status that a customer can request.",
+        "enum": [
+          "active",
+          "paused"
+        ]
+      },
+      "Form": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "status",
+          "endpointId",
+          "submissionUrl",
+          "destinationEmail",
+          "allowedOrigins",
+          "successRedirectUrl",
+          "spamHoneypotField",
+          "minSubmitSeconds",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The stable PostMyForm form ID."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The form name."
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The account-facing form slug."
+          },
+          "status": {
+            "$ref": "#/components/schemas/FormStatus"
+          },
+          "endpointId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The public submission endpoint ID."
+          },
+          "submissionUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The complete public URL that accepts form submissions."
+          },
+          "destinationEmail": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The configured email delivery destination."
+          },
+          "allowedOrigins": {
+            "type": "array",
+            "description": "The configured allowed origins for browser submissions.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "successRedirectUrl": {
+            "description": "The configured redirect URL, or null when none is set.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "spamHoneypotField": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The configured honeypot field name."
+          },
+          "minSubmitSeconds": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The minimum accepted form completion time in seconds."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The time when the form was created."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The time when the form was last updated."
+          }
+        }
+      },
+      "CreateFormRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "destinationEmail"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": ".*\\S.*",
+            "description": "The form name."
+          },
+          "destinationEmail": {
+            "type": "string",
+            "format": "email",
+            "minLength": 1,
+            "maxLength": 320,
+            "pattern": ".*\\S.*",
+            "description": "The email destination for submission notifications."
+          },
+          "allowedOrigins": {
+            "type": "array",
+            "maxItems": 50,
+            "description": "Origins to configure for browser form submissions. Each value\nmust be an absolute HTTP or HTTPS URL. PostMyForm normalizes\nduplicate and URL-based origin values.\n",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            }
+          },
+          "successRedirectUrl": {
+            "description": "An absolute HTTP or HTTPS URL to use after a successful\nsubmission. Use null or omit this property to configure no\nredirect.\n",
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2048
+          }
+        }
+      },
+      "PatchFormRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": ".*\\S.*",
+            "description": "The form name."
+          },
+          "destinationEmail": {
+            "type": "string",
+            "format": "email",
+            "minLength": 1,
+            "maxLength": 320,
+            "pattern": ".*\\S.*",
+            "description": "The email destination for submission notifications."
+          },
+          "allowedOrigins": {
+            "type": "array",
+            "maxItems": 50,
+            "description": "Origins to configure for browser form submissions. Each value\nmust be an absolute HTTP or HTTPS URL. Use an empty array to\nclear all configured origins.\n",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            }
+          },
+          "successRedirectUrl": {
+            "description": "An absolute HTTP or HTTPS URL to use after a successful\nsubmission. Use null to clear the configured redirect.\n",
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2048
+          },
+          "spamHoneypotField": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[A-Za-z0-9_-]{1,80}$",
+            "description": "The honeypot field name. The name must not conflict with a\nreserved field or an existing form field.\n"
+          },
+          "status": {
+            "$ref": "#/components/schemas/EditableFormStatus"
+          }
+        }
+      },
+      "FormFieldType": {
+        "type": "string",
+        "description": "The HTML control type used for the form field.",
+        "enum": [
+          "text",
+          "email",
+          "textarea",
+          "select",
+          "checkbox"
+        ]
+      },
+      "FormField": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "label",
+          "fieldType",
+          "required",
+          "options"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[A-Za-z0-9_-]{1,80}$",
+            "description": "The normalized HTML form field name."
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "The normalized human-readable field label."
+          },
+          "fieldType": {
+            "$ref": "#/components/schemas/FormFieldType"
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Whether generated HTML marks the field as required."
+          },
+          "options": {
+            "description": "The normalized select options. This value is null for\nnon-select fields.\n",
+            "type": [
+              "array",
+              "null"
+            ],
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            }
+          }
+        }
+      },
+      "ReplaceFormField": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "label",
+          "fieldType",
+          "required",
+          "options"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[A-Za-z0-9_-]{1,80}$",
+            "description": "The HTML form field name. PostMyForm trims this value before it\nvalidates and stores the field.\n"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "The human-readable field label. PostMyForm trims this value\nbefore it validates and stores the field.\n"
+          },
+          "fieldType": {
+            "$ref": "#/components/schemas/FormFieldType"
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Whether generated HTML marks the field as required."
+          },
+          "options": {
+            "description": "Select option values, or null when the field does not define\noptions.\n\nA select field must contain at least one option. A non-select\nfield can use null or an empty array. A non-empty option array is\nrejected for a non-select field.\n\nPostMyForm trims option values and rejects blank, duplicate, and\noverlong options.\n",
+            "type": [
+              "array",
+              "null"
+            ],
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120,
+              "description": "PostMyForm trims each option before validation.\n"
+            }
+          }
+        }
+      },
+      "ReplaceFormFieldsRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "fields"
+        ],
+        "properties": {
+          "fields": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "description": "The complete ordered replacement field collection.\n",
+            "items": {
+              "$ref": "#/components/schemas/ReplaceFormField"
+            }
+          }
+        }
+      },
+      "FormFieldsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "description": "The complete ordered field configuration.",
+            "items": {
+              "$ref": "#/components/schemas/FormField"
+            }
+          }
+        }
+      },
+      "FormSnippet": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "html"
+        ],
+        "properties": {
+          "html": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The generated starter HTML form. The snippet posts directly to\nthe form's current PostMyForm submission endpoint.\n"
+          }
+        }
+      },
+      "FormSnippetResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/FormSnippet"
+          }
+        }
+      },
+      "FormMutationReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The stable PostMyForm form ID."
+          },
+          "status": {
+            "$ref": "#/components/schemas/FormStatus"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The time when the form was last updated."
+          }
+        }
+      },
+      "FormListResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Form"
+            }
+          }
+        }
+      },
+      "FormResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Form"
+          }
+        }
+      },
+      "FormMutationResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/FormMutationReceipt"
+          }
+        }
+      },
+      "ErrorCode": {
+        "type": "string",
+        "enum": [
+          "unauthorized",
+          "insufficient_scope",
+          "organization_suspended",
+          "entitlement_expired",
+          "organization_unavailable",
+          "not_found",
+          "invalid_request",
+          "form_limit_reached",
+          "payload_too_large",
+          "unsupported_media_type",
+          "rate_limited"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        }
+      }
+    }
+  }
+}
