@@ -20,7 +20,7 @@ const (
 	ExitNetwork = 5
 )
 
-const Version = "dev"
+var Version = "dev"
 
 func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
