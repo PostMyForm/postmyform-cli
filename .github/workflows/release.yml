@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify release commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Release tag must point to a commit on main."
+            exit 1
+          fi
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.1"
+          cache: true
+
+      - name: Validate source
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Install SBOM generator
+        env:
+          GOBIN: ${{ github.workspace }}/.tools
+        run: >
+          go install
+          github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.12.0
+
+      - name: Build release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${GITHUB_REF_NAME}"
+          ldflags="-s -w -X github.com/PostMyForm/postmyform-cli/internal/cli.Version=${version}"
+
+          mkdir -p dist
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -buildvcs=false -ldflags="$ldflags" \
+            -o dist/postmyform-linux-amd64 ./cmd/postmyform
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+            go build -trimpath -buildvcs=false -ldflags="$ldflags" \
+            -o dist/postmyform-linux-arm64 ./cmd/postmyform
+
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 \
+            go build -trimpath -buildvcs=false -ldflags="$ldflags" \
+            -o dist/postmyform-darwin-amd64 ./cmd/postmyform
+
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
+            go build -trimpath -buildvcs=false -ldflags="$ldflags" \
+            -o dist/postmyform-darwin-arm64 ./cmd/postmyform
+
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+            go build -trimpath -buildvcs=false -ldflags="$ldflags" \
+            -o dist/postmyform-windows-amd64.exe ./cmd/postmyform
+
+      - name: Generate SBOMs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            .tools/cyclonedx-gomod app -json \
+            -output dist/postmyform-linux-amd64.bom.json \
+            -main cmd/postmyform .
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+            .tools/cyclonedx-gomod app -json \
+            -output dist/postmyform-linux-arm64.bom.json \
+            -main cmd/postmyform .
+
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 \
+            .tools/cyclonedx-gomod app -json \
+            -output dist/postmyform-darwin-amd64.bom.json \
+            -main cmd/postmyform .
+
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
+            .tools/cyclonedx-gomod app -json \
+            -output dist/postmyform-darwin-arm64.bom.json \
+            -main cmd/postmyform .
+
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+            .tools/cyclonedx-gomod app -json \
+            -output dist/postmyform-windows-amd64.bom.json \
+            -main cmd/postmyform .
+
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum postmyform-* > SHA256SUMS
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create
+          "${GITHUB_REF_NAME}"
+          dist/*
+          --repo "${GITHUB_REPOSITORY}"
+          --title "${GITHUB_REF_NAME}"
+          --generate-notes
+          --verify-tag
