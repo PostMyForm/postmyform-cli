@@ -1302,3 +1302,110 @@ func TestFormsFieldsReplaceRejectsInvalidFieldType(t *testing.T) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
+
+func TestFormsListAPIFailuresUseAPIExit(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		code       string
+		message    string
+	}{
+		{
+			name:       "not found",
+			statusCode: http.StatusNotFound,
+			code:       "not_found",
+			message:    "Resource not found",
+		},
+		{
+			name:       "conflict",
+			statusCode: http.StatusConflict,
+			code:       "conflict",
+			message:    "Request conflicts with current state",
+		},
+		{
+			name:       "server failure",
+			statusCode: http.StatusInternalServerError,
+			code:       "internal_error",
+			message:    "Internal server error",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.statusCode)
+				_, _ = fmt.Fprintf(
+					w,
+					`{"error":{"code":%q,"message":%q}}`,
+					tt.code,
+					tt.message,
+				)
+			}))
+			defer server.Close()
+
+			t.Setenv("POSTMYFORM_API_TOKEN", "test-token")
+			t.Setenv("POSTMYFORM_API_BASE_URL", server.URL)
+
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+
+			code := Run([]string{"forms", "list"}, &stdout, &stderr)
+
+			if code != ExitAPI {
+				t.Fatalf("exit code = %d, want %d", code, ExitAPI)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("stdout = %q, want empty", stdout.String())
+			}
+			if stderr.String() != tt.message+"\n" {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tt.message+"\n")
+			}
+		})
+	}
+}
+
+func TestFormsListRateLimitRedactsCredentialFromRetryAfter(t *testing.T) {
+	const token = "777777"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", token)
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{
+			"error":{
+				"code":"rate_limited",
+				"message":"Too many requests"
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("POSTMYFORM_API_TOKEN", token)
+	t.Setenv("POSTMYFORM_API_BASE_URL", server.URL)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := Run([]string{"forms", "list"}, &stdout, &stderr)
+
+	if code != ExitAPI {
+		t.Fatalf("exit code = %d, want %d", code, ExitAPI)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+	if strings.Contains(stderr.String(), token) {
+		t.Fatalf("stderr exposed API credential: %q", stderr.String())
+	}
+
+	want := "" +
+		"Too many requests\n" +
+		"Retry-After: [REDACTED]\n"
+
+	if stderr.String() != want {
+		t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+	}
+}

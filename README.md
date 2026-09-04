@@ -579,7 +579,15 @@ A development build reports `dev` unless version metadata is injected at build t
 
 ## API models
 
-The repository contains a pinned copy of the public PostMyForm OpenAPI contract:
+The authoritative PostMyForm OpenAPI document is published at:
+
+```text
+https://postmyform.com/openapi.json
+```
+
+This CLI currently supports PostMyForm API version `0.6.0`.
+
+The repository contains a pinned copy of the supported public contract:
 
 ```text
 api/openapi.json
@@ -591,9 +599,53 @@ Its expected SHA-256 is recorded in:
 api/openapi.sha256
 ```
 
-Generated API models are created from the public contract.
+Generated API models are committed at:
 
-The CLI does not depend on PostMyForm private application source code.
+```text
+internal/api/models.gen.go
+```
+
+The models are generated with `oapi-codegen v2.8.0` and the committed
+configuration in `api/oapi-codegen.yaml`.
+
+To refresh the supported contract:
+
+1. Download `https://postmyform.com/openapi.json` over HTTPS.
+2. Review the API change and compatibility impact.
+3. Replace `api/openapi.json`.
+4. Update `api/openapi.sha256`.
+5. Regenerate `internal/api/models.gen.go`.
+6. Review the generated diff and any required client changes.
+7. Run the complete test, contract, and vulnerability gates before merge.
+
+CI validates the committed contract checksum and regenerates the models to
+detect stale generated code.
+
+CI also downloads the current published OpenAPI document and compares it with
+the supported snapshot using `oasdiff v1.30.0`.
+
+Compatible published additions are reported but do not fail the build.
+Incompatible changes fail CI.
+
+External OpenAPI references are disabled during the compatibility check.
+
+The CLI does not require access to PostMyForm private application source code
+to obtain, validate, or update the public API contract.
+
+## Dependency security
+
+CI runs `govulncheck v1.7.0` against the complete CLI source tree.
+
+The policy is:
+
+- direct and transitive Go dependencies used by the built program are in scope
+- any vulnerability reported by the pinned `govulncheck` gate is release-blocking
+- there is no CVSS threshold that permits a reported reachable vulnerability to pass
+- remediation should update, replace, or remove the affected dependency
+- an exception requires documented technical review, a tracked issue, and an explicit release decision
+- unresolved release-blocking findings fail CI and must not be released
+
+Release builds also generate a CycloneDX JSON SBOM for every supported binary.
 
 ## Releases
 
