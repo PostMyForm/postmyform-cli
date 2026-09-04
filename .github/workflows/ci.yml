@@ -49,6 +49,28 @@ jobs:
       - name: Test with race detector
         run: go test -race ./...
 
+      - name: Verify pinned API contract
+        run: |
+          cd api
+          sha256sum -c openapi.sha256
+
+      - name: Verify generated API models
+        env:
+          GOBIN: ${{ runner.temp }}/tools
+        run: |
+          mkdir -p "$GOBIN"
+          go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0
+          "$GOBIN/oapi-codegen" --config api/oapi-codegen.yaml api/openapi.json
+          git diff --exit-code -- internal/api/models.gen.go
+
+      - name: Check vulnerabilities
+        env:
+          GOBIN: ${{ runner.temp }}/tools
+        run: |
+          mkdir -p "$GOBIN"
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          "$GOBIN/govulncheck" ./...
+
   cross-build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ubuntu-24.04
