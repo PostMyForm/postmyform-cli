@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 
 	"github.com/PostMyForm/postmyform-cli/internal/api"
@@ -199,8 +200,64 @@ func configuredClient(stderr io.Writer) (*api.Client, int) {
 }
 
 func writeAPIError(stderr io.Writer, err error) int {
+	if errors.Is(err, context.DeadlineExceeded) {
+		fmt.Fprintln(stderr, "timeout")
+		return ExitNetwork
+	}
+
+	var netError net.Error
+	if errors.As(err, &netError) && netError.Timeout() {
+		fmt.Fprintln(stderr, "timeout")
+		return ExitNetwork
+	}
+
 	var apiError *api.APIError
 	if errors.As(err, &apiError) {
+		category := ""
+
+		switch {
+		case apiError.Code == api.ErrorCodeUnauthorized ||
+			apiError.StatusCode == 401:
+			fmt.Fprintln(stderr, "authentication failure")
+			return ExitAuth
+		case apiError.Code == api.ErrorCodeInsufficientScope ||
+			apiError.StatusCode == 403:
+			fmt.Fprintln(stderr, "authorization or scope failure")
+			return ExitAuth
+		case apiError.Code == api.ErrorCodeInvalidRequest ||
+			apiError.Code == api.ErrorCodePayloadTooLarge ||
+			apiError.Code == api.ErrorCodeUnsupportedMediaType ||
+			apiError.StatusCode == 400 ||
+			apiError.StatusCode == 413 ||
+			apiError.StatusCode == 415 ||
+			apiError.StatusCode == 422:
+			category = "validation failure"
+		case apiError.Code == api.ErrorCodeNotFound ||
+			apiError.StatusCode == 404:
+			category = "not found"
+		case apiError.StatusCode == 409:
+			category = "conflict"
+		case apiError.Code == api.ErrorCodeRateLimited ||
+			apiError.StatusCode == 429:
+			category = "rate limited"
+		case apiError.StatusCode >= 500:
+			category = "PostMyForm API server failure"
+		}
+
+		if category != "" {
+			if apiError.Message != "" {
+				fmt.Fprintf(stderr, "%s: %s\n", category, apiError.Message)
+			} else {
+				fmt.Fprintf(stderr, "%s\n", category)
+			}
+
+			if apiError.StatusCode == 429 && apiError.RetryAfter != "" {
+				fmt.Fprintf(stderr, "Retry-After: %s\n", apiError.RetryAfter)
+			}
+
+			return ExitAPI
+		}
+
 		if apiError.Message != "" {
 			fmt.Fprintf(stderr, "%s\n", apiError.Message)
 		} else {
@@ -211,16 +268,7 @@ func writeAPIError(stderr io.Writer, err error) int {
 			)
 		}
 
-		if apiError.StatusCode == 429 && apiError.RetryAfter != "" {
-			fmt.Fprintf(stderr, "Retry-After: %s\n", apiError.RetryAfter)
-		}
-
-		switch apiError.StatusCode {
-		case 401, 403:
-			return ExitAuth
-		default:
-			return ExitAPI
-		}
+		return ExitAPI
 	}
 
 	var requestEncodingError *api.RequestEncodingError
@@ -231,7 +279,7 @@ func writeAPIError(stderr io.Writer, err error) int {
 
 	var transportError *api.TransportError
 	if errors.As(err, &transportError) {
-		fmt.Fprintln(stderr, "unable to reach the PostMyForm API")
+		fmt.Fprintln(stderr, "network failure")
 		return ExitNetwork
 	}
 

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -838,6 +839,69 @@ func TestFormsSnippetJSONOutput(t *testing.T) {
 	}
 }
 
+func TestWriteAPIErrorUsesStableCommonCategories(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStderr string
+		wantExit   int
+	}{
+		{name: "validation", err: &api.APIError{StatusCode: http.StatusBadRequest, Message: "bad value"}, wantStderr: "validation failure: bad value\n", wantExit: ExitAPI},
+		{name: "not found", err: &api.APIError{StatusCode: http.StatusNotFound, Message: "missing"}, wantStderr: "not found: missing\n", wantExit: ExitAPI},
+		{name: "conflict", err: &api.APIError{StatusCode: http.StatusConflict, Message: "stale state"}, wantStderr: "conflict: stale state\n", wantExit: ExitAPI},
+		{name: "rate limited", err: &api.APIError{StatusCode: http.StatusTooManyRequests, Message: "slow down", RetryAfter: "30"}, wantStderr: "rate limited: slow down\nRetry-After: 30\n", wantExit: ExitAPI},
+		{name: "server failure", err: &api.APIError{StatusCode: http.StatusInternalServerError, Message: "temporary failure"}, wantStderr: "PostMyForm API server failure: temporary failure\n", wantExit: ExitAPI},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			code := writeAPIError(&stderr, tt.err)
+
+			if code != tt.wantExit {
+				t.Fatalf("exit code = %d, want %d", code, tt.wantExit)
+			}
+			if stderr.String() != tt.wantStderr {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tt.wantStderr)
+			}
+		})
+	}
+}
+
+type timeoutTestError struct{}
+
+func (timeoutTestError) Error() string   { return "synthetic timeout" }
+func (timeoutTestError) Timeout() bool   { return true }
+func (timeoutTestError) Temporary() bool { return true }
+
+func TestWriteAPIErrorTreatsNetTimeoutAsTimeout(t *testing.T) {
+	var stderr bytes.Buffer
+
+	err := fmt.Errorf("transport failed: %w", timeoutTestError{})
+	code := writeAPIError(&stderr, err)
+
+	if code != ExitNetwork {
+		t.Fatalf("exit code = %d, want %d", code, ExitNetwork)
+	}
+	if got := stderr.String(); got != "timeout\n" {
+		t.Fatalf("stderr = %q, want timeout", got)
+	}
+}
+
+func TestWriteAPIErrorDistinguishesTimeoutFromNetworkFailure(t *testing.T) {
+	var stderr bytes.Buffer
+
+	err := fmt.Errorf("request failed: %w", context.DeadlineExceeded)
+	code := writeAPIError(&stderr, err)
+
+	if code != ExitNetwork {
+		t.Fatalf("exit code = %d, want %d", code, ExitNetwork)
+	}
+	if got := stderr.String(); got != "timeout\n" {
+		t.Fatalf("stderr = %q", got)
+	}
+}
+
 func TestFormsListNetworkFailureUsesNetworkExitAndRedactsToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	baseURL := server.URL
@@ -859,7 +923,7 @@ func TestFormsListNetworkFailureUsesNetworkExitAndRedactsToken(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if got := stderr.String(); got != "unable to reach the PostMyForm API\n" {
+	if got := stderr.String(); got != "network failure\n" {
 		t.Fatalf("stderr = %q", got)
 	}
 	if strings.Contains(stderr.String(), token) {
@@ -899,7 +963,7 @@ func TestFormsListRateLimitShowsRetryAfter(t *testing.T) {
 	}
 
 	want := "" +
-		"Too many requests\n" +
+		"rate limited: Too many requests\n" +
 		"Retry-After: 30\n"
 
 	if stderr.String() != want {
@@ -912,11 +976,23 @@ func TestFormsListRateLimitShowsRetryAfter(t *testing.T) {
 
 func TestFormsListAuthFailuresUseAuthExit(t *testing.T) {
 	tests := []struct {
-		name       string
-		statusCode int
+		name           string
+		statusCode     int
+		errorCode      string
+		expectedStderr string
 	}{
-		{name: "unauthorized", statusCode: http.StatusUnauthorized},
-		{name: "forbidden", statusCode: http.StatusForbidden},
+		{
+			name:           "unauthorized",
+			statusCode:     http.StatusUnauthorized,
+			errorCode:      "unauthorized",
+			expectedStderr: "authentication failure\n",
+		},
+		{
+			name:           "insufficient scope",
+			statusCode:     http.StatusForbidden,
+			errorCode:      "insufficient_scope",
+			expectedStderr: "authorization or scope failure\n",
+		},
 	}
 
 	for _, tt := range tests {
@@ -924,12 +1000,12 @@ func TestFormsListAuthFailuresUseAuthExit(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(tt.statusCode)
-				_, _ = w.Write([]byte(`{
+				_, _ = fmt.Fprintf(w, `{
 					"error":{
-						"code":"unauthorized",
+						"code":%q,
 						"message":"Access denied"
 					}
-				}`))
+				}`, tt.errorCode)
 			}))
 			defer server.Close()
 
@@ -947,8 +1023,8 @@ func TestFormsListAuthFailuresUseAuthExit(t *testing.T) {
 			if stdout.Len() != 0 {
 				t.Fatalf("stdout = %q, want empty", stdout.String())
 			}
-			if stderr.String() != "Access denied\n" {
-				t.Fatalf("stderr = %q, want Access denied", stderr.String())
+			if stderr.String() != tt.expectedStderr {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tt.expectedStderr)
 			}
 		})
 	}
@@ -1096,7 +1172,7 @@ func TestFormsCreateServerValidationUsesAPIExit(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if stderr.String() != "form name is not allowed\n" {
+	if stderr.String() != "validation failure: form name is not allowed\n" {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
@@ -1131,7 +1207,7 @@ func TestFormsListServerFailureRedactsToken(t *testing.T) {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 
-	want := "internal failure involving [REDACTED]\n"
+	want := "PostMyForm API server failure: internal failure involving [REDACTED]\n"
 	if stderr.String() != want {
 		t.Fatalf("stderr = %q, want %q", stderr.String(), want)
 	}
@@ -1309,24 +1385,28 @@ func TestFormsListAPIFailuresUseAPIExit(t *testing.T) {
 		statusCode int
 		code       string
 		message    string
+		category   string
 	}{
 		{
 			name:       "not found",
 			statusCode: http.StatusNotFound,
 			code:       "not_found",
 			message:    "Resource not found",
+			category:   "not found",
 		},
 		{
 			name:       "conflict",
 			statusCode: http.StatusConflict,
 			code:       "conflict",
 			message:    "Request conflicts with current state",
+			category:   "conflict",
 		},
 		{
 			name:       "server failure",
 			statusCode: http.StatusInternalServerError,
 			code:       "internal_error",
 			message:    "Internal server error",
+			category:   "PostMyForm API server failure",
 		},
 	}
 
@@ -1360,8 +1440,9 @@ func TestFormsListAPIFailuresUseAPIExit(t *testing.T) {
 			if stdout.Len() != 0 {
 				t.Fatalf("stdout = %q, want empty", stdout.String())
 			}
-			if stderr.String() != tt.message+"\n" {
-				t.Fatalf("stderr = %q, want %q", stderr.String(), tt.message+"\n")
+			want := fmt.Sprintf("%s: %s\n", tt.category, tt.message)
+			if stderr.String() != want {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), want)
 			}
 		})
 	}
@@ -1402,7 +1483,7 @@ func TestFormsListRateLimitRedactsCredentialFromRetryAfter(t *testing.T) {
 	}
 
 	want := "" +
-		"Too many requests\n" +
+		"rate limited: Too many requests\n" +
 		"Retry-After: [REDACTED]\n"
 
 	if stderr.String() != want {

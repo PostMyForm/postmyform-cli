@@ -120,6 +120,10 @@ func TestListFormsTimeoutReturnsTransportError(t *testing.T) {
 	if !errors.As(err, &transportError) {
 		t.Fatalf("error = %T %v, want *TransportError", err, err)
 	}
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %T %v, want context deadline exceeded", err, err)
+	}
 }
 
 func TestListFormsAcceptsJSONContentTypeWithParameters(t *testing.T) {
