@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -20,10 +22,11 @@ const (
 )
 
 var (
-	ErrMissingToken      = errors.New("POSTMYFORM_API_TOKEN is required")
-	ErrInvalidBaseURL    = errors.New("invalid PostMyForm API base URL")
-	ErrResponseTooLarge  = errors.New("PostMyForm API response exceeds size limit")
-	ErrMalformedResponse = errors.New("PostMyForm API returned a malformed response")
+	ErrMissingToken          = errors.New("POSTMYFORM_API_TOKEN is required")
+	ErrInvalidBaseURL        = errors.New("invalid PostMyForm API base URL")
+	ErrResponseTooLarge      = errors.New("PostMyForm API response exceeds size limit")
+	ErrMalformedResponse     = errors.New("PostMyForm API returned a malformed response")
+	ErrUnexpectedContentType = errors.New("PostMyForm API returned an unexpected content type")
 )
 
 type Client struct {
@@ -162,6 +165,14 @@ func (c *Client) do(
 		return ErrMalformedResponse
 	}
 
+	if !isJSONContentType(resp.Header.Get("Content-Type")) {
+		return ErrUnexpectedContentType
+	}
+
+	if err := validateResponseShape(responseBody, result); err != nil {
+		return err
+	}
+
 	if err := json.Unmarshal(responseBody, result); err != nil {
 		return fmt.Errorf("%w: %v", ErrMalformedResponse, err)
 	}
@@ -172,16 +183,25 @@ func (c *Client) do(
 func (c *Client) decodeAPIError(resp *http.Response, body []byte) error {
 	apiError := &APIError{
 		StatusCode: resp.StatusCode,
-		RetryAfter: resp.Header.Get("Retry-After"),
+		RetryAfter: c.sanitizeRetryAfter(resp.Header.Get("Retry-After")),
 	}
 
 	var errorResponse ErrorResponse
-	if len(body) > 0 && json.Unmarshal(body, &errorResponse) == nil {
+	if len(body) > 0 && isJSONContentType(resp.Header.Get("Content-Type")) && json.Unmarshal(body, &errorResponse) == nil {
 		apiError.Code = errorResponse.Error.Code
 		apiError.Message = c.redact(errorResponse.Error.Message)
 	}
 
 	return apiError
+}
+
+func (c *Client) sanitizeRetryAfter(value string) string {
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds < 1 {
+		return ""
+	}
+
+	return c.redact(value)
 }
 
 func (c *Client) redact(value string) string {
@@ -190,4 +210,13 @@ func (c *Client) redact(value string) string {
 	}
 
 	return strings.ReplaceAll(value, c.token, "[REDACTED]")
+}
+
+func isJSONContentType(value string) bool {
+	mediaType, _, err := mime.ParseMediaType(value)
+	if err != nil {
+		return false
+	}
+
+	return mediaType == "application/json"
 }

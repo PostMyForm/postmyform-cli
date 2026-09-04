@@ -54,6 +54,36 @@ jobs:
           cd api
           sha256sum -c openapi.sha256
 
+      - name: Check published API compatibility
+        env:
+          GOBIN: ${{ runner.temp }}/tools
+        run: |
+          mkdir -p "$GOBIN"
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --proto '=https' \
+            --proto-redir '=https' \
+            --connect-timeout 5 \
+            --max-time 15 \
+            --output "${{ runner.temp }}/current-openapi.json" \
+            https://postmyform.com/openapi.json
+
+          if cmp -s api/openapi.json "${{ runner.temp }}/current-openapi.json"; then
+            echo "Published API contract matches the supported snapshot."
+          else
+            echo "Published API contract differs from the supported snapshot; checking compatibility."
+          fi
+
+          go install github.com/oasdiff/oasdiff@v1.30.0
+          "$GOBIN/oasdiff" breaking \
+            --fail-on ERR \
+            --allow-external-refs=false \
+            api/openapi.json \
+            "${{ runner.temp }}/current-openapi.json"
+
       - name: Verify generated API models
         env:
           GOBIN: ${{ runner.temp }}/tools
