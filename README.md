@@ -42,13 +42,16 @@ Each release also includes:
 
 - `SHA256SUMS`
 - one CycloneDX JSON SBOM for each target
+- `LICENSE`
+- `THIRD_PARTY_LICENSES.txt`
+- GitHub artifact attestations for the files listed in `SHA256SUMS`
 
 ### Linux
 
 Example for amd64:
 
 ```bash
-gh release download v0.1.0 \
+gh release download \
   --repo PostMyForm/postmyform-cli \
   --pattern postmyform-linux-amd64 \
   --pattern SHA256SUMS
@@ -121,6 +124,58 @@ Get-FileHash .\postmyform-windows-amd64.exe -Algorithm SHA256
 Compare the result with the matching entry in `SHA256SUMS`.
 
 You can rename the executable to `postmyform.exe` and place it in a directory that is included in your `PATH`.
+
+## Upgrade
+
+Check the installed version:
+
+```bash
+postmyform --version
+```
+
+Check the latest published release:
+
+```bash
+gh release view \
+  --repo PostMyForm/postmyform-cli \
+  --json tagName \
+  --jq .tagName
+```
+
+To upgrade, download the latest binary for your platform, verify it, and replace the installed `postmyform` executable using the same installation method described above.
+
+The CLI does not update itself automatically.
+
+## Uninstall
+
+On Linux or macOS, if you installed the CLI in `/usr/local/bin`:
+
+```bash
+sudo rm /usr/local/bin/postmyform
+```
+
+On Windows, delete `postmyform.exe` from the directory where you installed it.
+
+If you added a directory to `PATH` only for PostMyForm CLI, you can remove that directory from `PATH` after deleting the executable.
+
+## Release verification
+
+Each release includes a `SHA256SUMS` file. Verify the downloaded binary against that file before installation.
+
+Release artifacts also have GitHub artifact attestations.
+
+If GitHub CLI is installed, verify the provenance of a downloaded artifact with:
+
+```bash
+gh attestation verify postmyform-linux-amd64 \
+  --repo PostMyForm/postmyform-cli
+```
+
+Replace `postmyform-linux-amd64` with the file name for your platform.
+
+A valid attestation verifies that the artifact was produced by the PostMyForm CLI GitHub Actions release workflow.
+
+Do not disable operating-system security controls to run the CLI.
 
 ## Authentication
 
@@ -649,18 +704,29 @@ Release builds also generate a CycloneDX JSON SBOM for every supported binary.
 
 ## Releases
 
-Release tags use semantic version names such as `v0.1.0`.
+PostMyForm CLI uses semantic versioning.
 
-A release tag must point to a commit that is already on `main`.
+Release tags use names such as `v0.1.0`.
 
-The release workflow:
+A release tag must point to a commit that is already on `main`. The release workflow fails if this condition is not met.
 
-1. validates the Go source
-2. builds five native binaries
-3. injects the release tag as the CLI version
-4. generates a CycloneDX SBOM for each target
-5. generates `SHA256SUMS`
-6. publishes the files as a GitHub Release
+Before publication, the release workflow:
+
+1. checks Go formatting
+2. runs `go vet`
+3. runs the complete test suite
+4. runs the race detector
+5. verifies the pinned OpenAPI checksum
+6. checks the published API for incompatible changes
+7. regenerates API models and requires a clean diff
+8. runs the pinned `govulncheck` gate
+9. builds all five native release binaries
+10. rebuilds each binary and requires byte-for-byte reproducibility
+11. verifies that `postmyform version` and `postmyform --version` match the release tag
+12. generates a CycloneDX JSON SBOM for every target
+13. generates SHA-256 checksums
+14. creates GitHub artifact attestations
+15. publishes the GitHub Release and generated release notes
 
 Release targets:
 
@@ -672,7 +738,19 @@ darwin/arm64
 windows/amd64
 ```
 
-Release builds use `CGO_ENABLED=0`, `-trimpath`, and `-buildvcs=false`.
+Release builds use:
+
+```text
+CGO_ENABLED=0
+-trimpath
+-buildvcs=false
+```
+
+The release version is injected at build time from the Git tag.
+
+GitHub artifact attestations provide signed build provenance without requiring a long-lived PostMyForm signing key.
+
+Direct GitHub Release downloads are the initial distribution channel. Package-manager channels such as Homebrew, WinGet, or Scoop can be added later without blocking the native binary release.
 
 ## License
 

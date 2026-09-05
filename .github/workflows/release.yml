@@ -7,6 +7,9 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
 
 jobs:
   release:
@@ -31,16 +34,91 @@ jobs:
             exit 1
           fi
 
+      - name: Verify release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Release tag must be a stable semantic version such as v0.1.2."
+            exit 1
+          fi
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27.1"
           cache: true
 
-      - name: Validate source
+      - name: Check formatting
+        shell: bash
         run: |
-          go vet ./...
-          go test ./...
+          files="$(gofmt -l .)"
+          if [ -n "$files" ]; then
+            printf 'Files need gofmt:\n%s\n' "$files"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Test with race detector
+        run: go test -race ./...
+
+      - name: Verify pinned API contract
+        run: |
+          cd api
+          sha256sum -c openapi.sha256
+
+      - name: Check published API compatibility
+        env:
+          GOBIN: ${{ runner.temp }}/tools
+        run: |
+          mkdir -p "$GOBIN"
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --proto '=https' \
+            --proto-redir '=https' \
+            --connect-timeout 5 \
+            --max-time 15 \
+            --output "${{ runner.temp }}/current-openapi.json" \
+            https://postmyform.com/openapi.json
+
+          if cmp -s api/openapi.json "${{ runner.temp }}/current-openapi.json"; then
+            echo "Published API contract matches the supported snapshot."
+          else
+            echo "Published API contract differs from the supported snapshot; checking compatibility."
+          fi
+
+          go install github.com/oasdiff/oasdiff@v1.30.0
+          "$GOBIN/oasdiff" breaking \
+            --fail-on ERR \
+            --allow-external-refs=false \
+            api/openapi.json \
+            "${{ runner.temp }}/current-openapi.json"
+
+      - name: Verify generated API models
+        env:
+          GOBIN: ${{ runner.temp }}/tools
+        run: |
+          mkdir -p "$GOBIN"
+          go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0
+          "$GOBIN/oapi-codegen" --config api/oapi-codegen.yaml api/openapi.json
+          git diff --exit-code -- internal/api/models.gen.go
+
+      - name: Check vulnerabilities
+        env:
+          GOBIN: ${{ runner.temp }}/tools
+        run: |
+          mkdir -p "$GOBIN"
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          "$GOBIN/govulncheck" ./...
 
       - name: Install SBOM generator
         env:
@@ -79,6 +157,54 @@ jobs:
             go build -trimpath -buildvcs=false -ldflags="$ldflags" \
             -o dist/postmyform-windows-amd64.exe ./cmd/postmyform
 
+      - name: Verify reproducible binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${GITHUB_REF_NAME}"
+          ldflags="-s -w -X github.com/PostMyForm/postmyform-cli/internal/cli.Version=${version}"
+
+          mkdir -p dist-rebuild
+
+          targets=(
+            "linux amd64 postmyform-linux-amd64"
+            "linux arm64 postmyform-linux-arm64"
+            "darwin amd64 postmyform-darwin-amd64"
+            "darwin arm64 postmyform-darwin-arm64"
+            "windows amd64 postmyform-windows-amd64.exe"
+          )
+
+          for target in "${targets[@]}"; do
+            read -r goos goarch filename <<< "$target"
+
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath -buildvcs=false -ldflags="$ldflags" \
+              -o "dist-rebuild/$filename" ./cmd/postmyform
+
+            cmp "dist/$filename" "dist-rebuild/$filename"
+          done
+
+      - name: Verify release version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          expected="${GITHUB_REF_NAME}"
+          actual="$(./dist/postmyform-linux-amd64 version)"
+
+          if [ "$actual" != "$expected" ]; then
+            printf 'Release version mismatch: expected %s, got %s\n' "$expected" "$actual"
+            exit 1
+          fi
+
+          actual="$(./dist/postmyform-linux-amd64 --version)"
+
+          if [ "$actual" != "$expected" ]; then
+            printf 'Release --version mismatch: expected %s, got %s\n' "$expected" "$actual"
+            exit 1
+          fi
+
       - name: Generate SBOMs
         shell: bash
         run: |
@@ -109,9 +235,24 @@ jobs:
             -output dist/postmyform-windows-amd64.bom.json \
             -main cmd/postmyform .
 
+      - name: Add distribution licenses
+        run: |
+          cp LICENSE dist/LICENSE
+          cp THIRD_PARTY_LICENSES.txt dist/THIRD_PARTY_LICENSES.txt
+
       - name: Generate checksums
         working-directory: dist
-        run: sha256sum postmyform-* > SHA256SUMS
+        run: |
+          sha256sum \
+            LICENSE \
+            THIRD_PARTY_LICENSES.txt \
+            postmyform-* \
+            > SHA256SUMS
+
+      - name: Attest release artifacts
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: dist/SHA256SUMS
 
       - name: Publish GitHub release
         env:
