@@ -179,13 +179,26 @@ Do not disable operating-system security controls to run the CLI.
 
 ## Authentication
 
-Create an API credential in PostMyForm and set it in the environment:
+Create an API credential in PostMyForm.
+
+For a temporary shell session, read the token without echoing it or placing
+the value in shell history:
 
 ```bash
-export POSTMYFORM_API_TOKEN='your-api-token'
+read -rsp "PostMyForm API token: " POSTMYFORM_API_TOKEN
+echo
+export POSTMYFORM_API_TOKEN
 ```
 
-The CLI does not provide a normal command-line flag for the API token. This helps keep credentials out of shell history and process argument lists.
+The CLI does not provide a normal command-line flag for the API token. This
+keeps credentials out of process argument lists.
+
+After the CLI session is complete, remove the token from the shell
+environment:
+
+```bash
+unset POSTMYFORM_API_TOKEN
+```
 
 Do not commit API tokens to source control.
 
